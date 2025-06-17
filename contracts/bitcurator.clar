@@ -217,3 +217,107 @@
     (ok true)
   )
 )
+
+;; Direct creator monetization through community rewards
+(define-public (reward-originator (item-identifier uint) (gratuity-amount uint))
+  (let
+    (
+      (target-item (unwrap! (map-get? curated-items { item-identifier: item-identifier }) ERR_NONEXISTENT_ITEM))
+    )
+    ;; Validate item exists
+    (asserts! (item-exists item-identifier) ERR_NONEXISTENT_ITEM)
+    
+    ;; Verify sender has sufficient balance
+    (asserts! (>= (stx-get-balance tx-sender) gratuity-amount) ERR_INADEQUATE_BALANCE)
+    
+    ;; Update gratuity counter before transfer (security best practice)
+    (map-set curated-items
+      { item-identifier: item-identifier }
+      (merge target-item { gratuities: (+ (get gratuities target-item) gratuity-amount) })
+    )
+    
+    ;; Execute STX transfer to content creator
+    (try! (stx-transfer? gratuity-amount tx-sender (get originator target-item)))
+    
+    ;; Emit reward event
+    (print { type: "reward", item-identifier: item-identifier, from: tx-sender, to: (get originator target-item), amount: gratuity-amount })
+    (ok true)
+  )
+)
+
+;; Community-driven content moderation system
+(define-public (flag-item (item-identifier uint))
+  (let
+    (
+      (target-item (unwrap! (map-get? curated-items { item-identifier: item-identifier }) ERR_NONEXISTENT_ITEM))
+    )
+    ;; Validate item exists
+    (asserts! (item-exists item-identifier) ERR_NONEXISTENT_ITEM)
+    
+    ;; Prevent self-flagging
+    (asserts! (not (is-eq (get originator target-item) tx-sender)) ERR_INVALID_FLAG)
+    
+    ;; Increment flag counter
+    (map-set curated-items
+      { item-identifier: item-identifier }
+      (merge target-item { flags: (+ (get flags target-item) u1) })
+    )
+    
+    ;; Emit flag event
+    (print { type: "flag", item-identifier: item-identifier, flagger: tx-sender })
+    (ok true)
+  )
+)
+
+;; READ-ONLY QUERY FUNCTIONS
+
+;; Retrieve complete content item metadata
+(define-read-only (retrieve-item-details (item-identifier uint))
+  (map-get? curated-items { item-identifier: item-identifier })
+)
+
+;; Get user's vote on specific content
+(define-read-only (retrieve-participant-appraisal (participant principal) (item-identifier uint))
+  (get appraisal (map-get? participant-appraisals { participant: participant, item-identifier: item-identifier }))
+)
+
+;; Get total content submissions in the system
+(define-read-only (retrieve-aggregate-submissions)
+  (var-get aggregate-submissions)
+)
+
+;; Retrieve user's reputation score
+(define-read-only (retrieve-participant-credibility (participant principal))
+  (default-to { metric: 0 } (map-get? participant-credibility { participant: participant }))
+)
+
+;; Generate list of valid item IDs for pagination
+(define-read-only (get-item-ids (count uint))
+  (filter is-non-zero (enumerate count))
+)
+
+;; Retrieve top-quality content based on community appraisals
+(define-read-only (retrieve-top-items (limit uint))
+  (let
+    (
+      (item-count (var-get aggregate-submissions))
+      (actual-limit (if (> limit item-count) item-count limit))
+    )
+    (filter not-none
+      (map retrieve-item-if-valid (get-item-ids actual-limit))
+    )
+  )
+)
+
+;; ADMINISTRATIVE FUNCTIONS
+
+;; Protocol fee adjustment mechanism
+(define-public (adjust-submission-charge (new-charge uint))
+  (begin
+    (asserts! (is-eq tx-sender PROTOCOL_ADMINISTRATOR) ERR_UNAUTHORIZED_ACCESS)
+    (asserts! (<= new-charge MAX_UINT) ERR_OVERFLOW)
+    (var-set submission-charge new-charge)
+    (print { type: "fee-change", new-charge: new-charge })
+    (ok true)
+  )
+)
