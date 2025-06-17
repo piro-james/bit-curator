@@ -321,3 +321,26 @@
     (ok true)
   )
 )
+
+;; Emergency content removal for policy violations
+(define-public (expunge-item (item-identifier uint))
+  (begin
+    (asserts! (is-eq tx-sender PROTOCOL_ADMINISTRATOR) ERR_UNAUTHORIZED_ACCESS)
+    (asserts! (item-exists item-identifier) ERR_NONEXISTENT_ITEM)
+    (map-delete curated-items { item-identifier: item-identifier })
+    (print { type: "item-expunged", item-identifier: item-identifier })
+    (ok true)
+  )
+)
+
+;; Expand content categorization system
+(define-public (introduce-topic (new-topic (string-ascii 20)))
+  (begin
+    (asserts! (is-eq tx-sender PROTOCOL_ADMINISTRATOR) ERR_UNAUTHORIZED_ACCESS)
+    (asserts! (< (len (var-get content-topics)) u10) ERR_INVALID_TOPIC)
+    (asserts! (>= (len new-topic) u1) ERR_INVALID_TOPIC)
+    (var-set content-topics (unwrap-panic (as-max-len? (append (var-get content-topics) new-topic) u10)))
+    (print { type: "new-topic", topic: new-topic })
+    (ok true)
+  )
+)
